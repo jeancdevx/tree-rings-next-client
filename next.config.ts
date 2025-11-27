@@ -1,7 +1,22 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  /* config options here */
-};
+  cacheComponents: true,
+  reactCompiler: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'apache-spark-perception-tree-rings.edducode.me',
+        pathname: '/**'
+      },
+      {
+        protocol: 'https',
+        hostname: '*.r2.cloudflarestorage.com',
+        pathname: '/**'
+      }
+    ]
+  }
+}
 
-export default nextConfig;
+export default nextConfig
