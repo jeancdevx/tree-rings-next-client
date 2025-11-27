@@ -49,8 +49,8 @@ de detección de anillos en tiempo real.
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │                 │     │                 │     │                 │
-│   Next.js 16    │────▶│   Backend API   │────▶│  Cloudflare R2  │
-│   (Frontend)    │     │   (FastAPI)     │     │   (Storage)     │
+│   Next.js 16    │────▶│   NestJS API    │────▶│  Cloudflare R2  │
+│   (Frontend)    │     │   (Backend)     │     │   (Storage)     │
 │                 │     │                 │     │                 │
 └────────┬────────┘     └────────┬────────┘     └─────────────────┘
          │                       │
@@ -66,26 +66,24 @@ de detección de anillos en tiempo real.
 
 ### Flujo de Datos
 
-1. **Upload**: El usuario sube imágenes → Se obtienen URLs firmadas → Se suben
-   directamente a R2
-2. **Process**: Se envía solicitud de procesamiento → Backend encola en Kafka →
-   Spark procesa
-3. **Results**: Spark envía resultados → Backend emite vía Socket.IO → Frontend
-   actualiza UI
+1. **Upload**: El usuario sube imágenes → Se obtienen URLs firmadas (presigned) → Se suben directamente a Cloudflare R2
+2. **Process**: Se envía solicitud de procesamiento → Backend encola mensaje en Apache Kafka → Spark consume y procesa
+3. **Results**: Spark publica resultados en Kafka → Backend consume y emite vía Socket.IO → Frontend actualiza UI en tiempo real
 
 ## 📦 Requisitos Previos
 
 - **Node.js** >= 20.x
 - **pnpm** >= 9.x (recomendado) o npm/yarn
-- **Backend API** corriendo en `http://localhost:8000`
-- **Acceso a Cloudflare R2** (configurado en el backend)
+- **Backend API** ([tree-rings-kafka-api](https://github.com/devEddu17x/tree-rings-kafka-api)) corriendo en `http://localhost:8000`
+- **Apache Kafka** configurado y corriendo
+- **Apache Spark** ([apache-spark-perception-tree-rings](https://github.com/devEddu17x/apache-spark-perception-tree-rings)) para procesamiento de imágenes
 
 ## 🚀 Instalación
 
 ### 1. Clonar el Repositorio
 
 ```bash
-git clone https://github.com/jeancdevx/tree-rings-next-client.git
+git clone https://github.com/devEddu17x/tree-rings-next-client.git
 cd tree-rings-next-client
 ```
 
@@ -245,12 +243,26 @@ pnpm start
 pnpm lint
 ```
 
-## 🔗 Enlaces Relacionados
+## 🔗 Repositorios Relacionados
 
-- [Backend API Repository](https://github.com/jeancdevx/tree-rings-backend) -
-  API FastAPI + Kafka
-- [Spark Processing](https://github.com/jeancdevx/tree-rings-spark) -
-  Procesamiento Apache Spark
+| Repositorio | Descripción | Tecnologías |
+|-------------|-------------|-------------|
+| [tree-rings-kafka-api](https://github.com/devEddu17x/tree-rings-kafka-api) | API Backend - Gestiona uploads, Kafka y WebSocket | NestJS, KafkaJS, Socket.IO, AWS S3 SDK |
+| [apache-spark-perception-tree-rings](https://github.com/devEddu17x/apache-spark-perception-tree-rings) | Procesamiento de imágenes con algoritmos de detección | Apache Spark, Python, OpenCV |
+
+## 🔌 API Endpoints
+
+El backend expone los siguientes endpoints:
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `POST` | `/api/v1/analysis/request-upload` | Solicita URLs firmadas para subir imágenes a R2 |
+| `POST` | `/api/v1/analysis/start-process` | Inicia el procesamiento de imágenes (encola en Kafka) |
+| `WS` | `/?clientId={uuid}` | Conexión Socket.IO para recibir resultados en tiempo real |
+
+### Evento WebSocket
+
+- **`process_finished`**: Emitido cuando Spark termina de procesar una imagen
 
 ## 📄 Licencia
 
