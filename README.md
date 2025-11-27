@@ -44,7 +44,7 @@ de detección de anillos en tiempo real.
 - **📱 Diseño Responsivo**: Interfaz adaptable a diferentes tamaños de pantalla
 - **🌙 Tema Oscuro/Claro**: Soporte para preferencias del sistema
 
-## 🏗️ Arquitectura
+## 🏗️ Arquitectura del Sistema
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -64,19 +64,73 @@ de detección de anillos en tiempo real.
                         └─────────────────┘
 ```
 
-### Flujo de Datos
+### Diagrama de Secuencia
 
-1. **Upload**: El usuario sube imágenes → Se obtienen URLs firmadas (presigned) → Se suben directamente a Cloudflare R2
-2. **Process**: Se envía solicitud de procesamiento → Backend encola mensaje en Apache Kafka → Spark consume y procesa
-3. **Results**: Spark publica resultados en Kafka → Backend consume y emite vía Socket.IO → Frontend actualiza UI en tiempo real
+```
+Usuario          Frontend           Backend API        R2 Storage       Kafka/Spark
+   │                │                    │                 │                 │
+   │  Seleccionar   │                    │                 │                 │
+   │   imágenes     │                    │                 │                 │
+   │───────────────>│                    │                 │                 │
+   │                │                    │                 │                 │
+   │  Marcar centro │                    │                 │                 │
+   │───────────────>│                    │                 │                 │
+   │                │                    │                 │                 │
+   │  Iniciar       │  POST /request-upload               │                 │
+   │  proceso       │───────────────────>│                 │                 │
+   │                │                    │                 │                 │
+   │                │  Presigned URLs    │                 │                 │
+   │                │<───────────────────│                 │                 │
+   │                │                    │                 │                 │
+   │                │  PUT (imagen)      │                 │                 │
+   │                │────────────────────────────────────>│                 │
+   │                │                    │                 │                 │
+   │                │  POST /start-process                │                 │
+   │                │───────────────────>│  Kafka Message │                 │
+   │                │                    │────────────────────────────────>│
+   │                │                    │                 │                 │
+   │                │  Socket.IO         │                 │   Procesar     │
+   │                │  (process_finished)│<────────────────────────────────│
+   │                │<───────────────────│                 │                 │
+   │                │                    │                 │                 │
+   │  Mostrar       │                    │                 │                 │
+   │  resultados    │                    │                 │                 │
+   │<───────────────│                    │                 │                 │
+```
+
+### Flujo de Datos Detallado
+
+1. **Upload de Imágenes**
+   - El usuario selecciona imágenes y marca el centro del tronco
+   - Frontend solicita URLs firmadas (presigned) al backend
+   - Las imágenes se suben **directamente** a Cloudflare R2, evitando sobrecarga
+     del servidor
+
+2. **Procesamiento**
+   - Frontend envía `POST /start-process` con las keys de las imágenes y
+     coordenadas
+   - Backend encola un mensaje en Apache Kafka (topic: `ingestion`)
+   - Apache Spark consume el mensaje y ejecuta 6 algoritmos de detección de
+     anillos
+
+3. **Resultados en Tiempo Real**
+   - Spark publica resultados en Kafka (topic: `results`)
+   - Backend consume resultados y los emite vía Socket.IO al `clientId`
+     correspondiente
+   - Frontend escucha el evento `process_finished` y actualiza la UI
+     inmediatamente
 
 ## 📦 Requisitos Previos
 
 - **Node.js** >= 20.x
 - **pnpm** >= 9.x (recomendado) o npm/yarn
-- **Backend API** ([tree-rings-kafka-api](https://github.com/devEddu17x/tree-rings-kafka-api)) corriendo en `http://localhost:8000`
+- **Backend API**
+  ([tree-rings-kafka-api](https://github.com/devEddu17x/tree-rings-kafka-api))
+  corriendo en `http://localhost:8000`
 - **Apache Kafka** configurado y corriendo
-- **Apache Spark** ([apache-spark-perception-tree-rings](https://github.com/devEddu17x/apache-spark-perception-tree-rings)) para procesamiento de imágenes
+- **Apache Spark**
+  ([apache-spark-perception-tree-rings](https://github.com/devEddu17x/apache-spark-perception-tree-rings))
+  para procesamiento de imágenes
 
 ## 🚀 Instalación
 
@@ -245,24 +299,139 @@ pnpm lint
 
 ## 🔗 Repositorios Relacionados
 
-| Repositorio | Descripción | Tecnologías |
-|-------------|-------------|-------------|
-| [tree-rings-kafka-api](https://github.com/devEddu17x/tree-rings-kafka-api) | API Backend - Gestiona uploads, Kafka y WebSocket | NestJS, KafkaJS, Socket.IO, AWS S3 SDK |
-| [apache-spark-perception-tree-rings](https://github.com/devEddu17x/apache-spark-perception-tree-rings) | Procesamiento de imágenes con algoritmos de detección | Apache Spark, Python, OpenCV |
+| Repositorio                                                                                            | Descripción                                           | Tecnologías                            |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- | -------------------------------------- |
+| [tree-rings-kafka-api](https://github.com/devEddu17x/tree-rings-kafka-api)                             | API Backend - Gestiona uploads, Kafka y WebSocket     | NestJS, KafkaJS, Socket.IO, AWS S3 SDK |
+| [apache-spark-perception-tree-rings](https://github.com/devEddu17x/apache-spark-perception-tree-rings) | Procesamiento de imágenes con algoritmos de detección | Apache Spark, Python, OpenCV           |
 
 ## 🔌 API Endpoints
 
 El backend expone los siguientes endpoints:
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| `POST` | `/api/v1/analysis/request-upload` | Solicita URLs firmadas para subir imágenes a R2 |
-| `POST` | `/api/v1/analysis/start-process` | Inicia el procesamiento de imágenes (encola en Kafka) |
-| `WS` | `/?clientId={uuid}` | Conexión Socket.IO para recibir resultados en tiempo real |
+| Método | Endpoint                          | Descripción                                               |
+| ------ | --------------------------------- | --------------------------------------------------------- |
+| `POST` | `/api/v1/analysis/request-upload` | Solicita URLs firmadas para subir imágenes a R2           |
+| `POST` | `/api/v1/analysis/start-process`  | Inicia el procesamiento de imágenes (encola en Kafka)     |
+| `WS`   | `/?clientId={uuid}`               | Conexión Socket.IO para recibir resultados en tiempo real |
 
 ### Evento WebSocket
 
 - **`process_finished`**: Emitido cuando Spark termina de procesar una imagen
+
+---
+
+## 🔧 Implementación del Cliente
+
+### Obtención de URLs Firmadas
+
+El cliente solicita URLs firmadas (presigned) para subir imágenes directamente a
+Cloudflare R2:
+
+```typescript
+// modules/analysis/services/analysis-api.ts
+
+export const requestUploadUrls = async (
+  body: RequestUploadBody
+): Promise<PresignedUrlResponse[]> => {
+  const response = await fetch(`${API_BASE_URL}/analysis/request-upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  return response.json()
+}
+
+// Subir imagen directamente a R2 usando la URL firmada
+export const uploadImageToR2 = async (
+  putUrl: string,
+  file: File,
+  contentType: string
+): Promise<void> => {
+  await fetch(putUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: file
+  })
+}
+```
+
+### Conexión Socket.IO para Resultados en Tiempo Real
+
+```typescript
+// modules/analysis/hooks/use-unified-process.ts
+
+import { io, Socket } from 'socket.io-client'
+
+useEffect(() => {
+  if (!clientId) return
+
+  // Establecer conexión Socket.IO con clientId como query param
+  const socket = io(WS_BASE_URL, {
+    query: { clientId },
+    transports: ['websocket', 'polling']
+  })
+
+  // Escuchar evento de resultados procesados
+  socket.on('process_finished', (data: ProcessResult) => {
+    if (data.jobId && data.status) {
+      addResult(data) // Agregar resultado al estado global (Zustand)
+    }
+  })
+
+  return () => socket.disconnect()
+}, [clientId, addResult])
+```
+
+### Procesamiento Paralelo de Imágenes
+
+Todas las imágenes se procesan en paralelo para máxima eficiencia:
+
+```typescript
+// modules/analysis/hooks/use-unified-process.ts
+
+const startFullProcess = useCallback(async () => {
+  const newClientId = crypto.randomUUID()
+  setClientId(newClientId)
+
+  // 1. Obtener URLs firmadas para todas las imágenes
+  const presignedUrls = await requestUploadUrls({ images: [...] })
+
+  // 2. Procesar cada imagen en paralelo
+  const processImage = async (index: number) => {
+    const urlData = presignedUrls[index]
+
+    // Subir a R2
+    await uploadImageToR2(urlData.putUrl, image.file, urlData.requiredHeaders['Content-Type'])
+
+    // Iniciar procesamiento inmediatamente (no esperar resultado)
+    await startProcessSingle(urlData.key, image.coordinatesX, image.coordinatesY, newClientId)
+  }
+
+  // Ejecutar todos en paralelo con Promise.allSettled
+  await Promise.allSettled(presignedUrls.map((_, index) => processImage(index)))
+}, [images])
+```
+
+### Estructura de Datos del Resultado
+
+```typescript
+interface ProcessResult {
+  jobId: string
+  status: 'COMPLETED' | 'ERROR'
+  data: {
+    originalUrl: string
+    metadata: [number, number] // [coordinatesX, coordinatesY]
+    results: {
+      ring_detection?: RingDetectionResult
+      polar_ring_detection?: PolarRingDetectionResult
+      sobel_ring_detection?: SobelRingDetectionResult
+      autocorrelation_periodicity?: AutocorrelationPeriodicityResult
+      second_derivative_ring_detection?: SecondDerivativeRingDetectionResult
+      unsharp_masking?: UnsharpMaskingResult
+    }
+  }
+}
+```
 
 ## 📄 Licencia
 
